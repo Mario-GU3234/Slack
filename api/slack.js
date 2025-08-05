@@ -194,7 +194,7 @@ app.command('/formulario', async ({ command, ack, body, client }) => {
 });
 
 // ==========================================
-// MODAL SUBMISSION: Procesar formulario
+// MODAL SUBMISSION: Procesar formulario  
 // ==========================================
 app.view('form_submission', async ({ ack, body, view, client }) => {
   console.log(`📤 Formulario enviado por: ${body.user.name}`);
@@ -398,59 +398,29 @@ module.exports = async (req, res) => {
       return;
     }
     
-    // Crear response mock para Slack Bolt
-    let responseBody = '';
-    let responseStatus = 200;
-    let responseHeaders = {};
-    
-    const mockRes = {
-      status: (code) => {
-        responseStatus = code;
-        return mockRes;
-      },
-      setHeader: (key, value) => {
-        responseHeaders[key] = value;
-        return mockRes;
-      },
-      end: (body) => {
-        responseBody = body || '';
-      },
-      send: (body) => {
-        responseBody = typeof body === 'string' ? body : JSON.stringify(body);
-      }
-    };
-    
-    // Procesar con Slack Bolt
-    await new Promise((resolve, reject) => {
-      const mockReq = {
-        ...req,
-        body: typeof req.body === 'string' ? req.body : JSON.stringify(req.body),
-        headers: req.headers,
-        method: req.method,
-        url: req.url
-      };
-      
-      // Usar el receiver interno de Slack Bolt
-      const receiver = app.receiver;
-      receiver.requestHandler(mockReq, mockRes, (err) => {
-        if (err) {
-          console.error('❌ Error en receiver:', err);
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
+    // ✅ CORRECCIÓN: Usar directamente el método start() de Slack Bolt
+    // En lugar de intentar acceder al receiver manualmente
+    await app.processEvent({
+      body: req.body,
+      headers: req.headers,
+      isBase64Encoded: false
     });
     
-    // Enviar respuesta final
-    Object.keys(responseHeaders).forEach(key => {
-      res.setHeader(key, responseHeaders[key]);
-    });
-    
-    res.status(responseStatus).send(responseBody);
+    // Responder con éxito
+    res.status(200).send('OK');
     
   } catch (error) {
     console.error('❌ Error en Vercel handler:', error);
+    
+    // Si es un error de verificación de Slack, responder adecuadamente
+    if (error.code === 'SLACK_REQUEST_VERIFICATION_FAILURE') {
+      res.status(401).json({ 
+        error: 'Unauthorized',
+        message: 'Invalid signature' 
+      });
+      return;
+    }
+    
     res.status(500).json({ 
       error: 'Internal Server Error',
       message: error.message 
