@@ -1,4 +1,4 @@
-const { App, ExpressReceiver } = require('@slack/bolt');
+const { App } = require('@slack/bolt');
 const sheetsService = require('./utils/sheets');
 require('dotenv').config();
 
@@ -13,16 +13,11 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
-// ✅ CREAR RECEIVER EXPLÍCITAMENTE PARA VERCEL
-const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  processBeforeResponse: true
-});
-
-// Inicializar Slack App con receiver personalizado
+// Inicializar Slack App
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  receiver
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  processBeforeResponse: true, // Importante para Vercel
 });
 
 console.log('✅ Slack App configurada correctamente');
@@ -380,8 +375,147 @@ app.event('app_mention', async ({ event, client }) => {
 });
 
 // ==========================================
-// EXPORT PARA VERCEL - VERSIÓN SIMPLE Y DIRECTA
+// EXPORT PARA VERCEL - VERSIÓN CORREGIDA
 // ==========================================
-module.exports = receiver.app;
+module.exports = async (req, res) => {
+  try {
+    console.log('📥 Request recibido:', req.method, req.url);
+    console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('📦 Body type:', typeof req.body);
+    
+    // Configurar headers CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // Manejar preflight OPTIONS
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
+    
+    // Solo aceptar POST requests
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    // ✅ CORRECCIÓN: Convertir el body a string si es necesario
+    let bodyString = req.body;
+    if (typeof req.body !== 'string') {
+      bodyString = JSON.stringify(req.body);
+    }
+    
+    console.log('📝 Body string:', bodyString.substring(0, 200) + '...');
+    
+    // ✅ USAR EL RECEIVER CORRECTAMENTE
+    // Verificar que el receiver existe
+    if (!app.receiver) {
+      throw new Error('Receiver no disponible');
+    }
+
+    // Crear un mock de Express req/res compatible
+    const mockReq = {
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      body: bodyString,
+      rawBody: Buffer.from(bodyString),
+      // Agregar propiedades necesarias
+      get: (header) => req.headers[header.toLowerCase()],
+      header: (header) => req.headers[header.toLowerCase()]
+    };
+
+    let responseStatus = 200;
+    let responseBody = '';
+    let responseHeaders = {};
+
+    const mockRes = {
+      status: function(code) {
+        responseStatus = code;
+        return this;
+      },
+      setHeader: function(key, value) {
+        responseHeaders[key] = value;
+        return this;
+      },
+      send: function(body) {
+        responseBody = body;
+        return this;
+      },
+      end: function(body) {
+        responseBody = body || '';
+        return this;
+      },
+      json: function(obj) {
+        responseBody = JSON.stringify(obj);
+        responseHeaders['Content-Type'] = 'application/json';
+        return this;
+      }
+    };
+
+    // ✅ USAR EL RECEIVER APP (Express app interno)
+    await new Promise((resolve, reject) => {
+      // El receiver de Slack Bolt tiene una propiedad 'app' que es el Express app
+      const expressApp = app.receiver.app;
+      
+      if (!expressApp) {
+        reject(new Error('Express app no disponible en receiver'));
+        return;
+      }
+
+      // Simular el manejo de Express
+      const middleware = expressApp._router;
+      if (middleware && typeof middleware.handle === 'function') {
+        middleware.handle(mockReq, mockRes, (err) => {
+          if (err) {
+            console.error('❌ Error en middleware:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      } else {
+        // Fallback: llamar directamente al manejador
+        expressApp(mockReq, mockRes);
+        resolve();
+      }
+    });
+
+    // Aplicar headers de respuesta
+    Object.keys(responseHeaders).forEach(key => {
+      res.setHeader(key, responseHeaders[key]);
+    });
+
+    // Enviar respuesta
+    res.status(responseStatus);
+    if (responseBody) {
+      res.send(responseBody);
+    } else {
+      res.send('OK');
+    }
+    
+    console.log('✅ Request procesado exitosamente');
+    
+  } catch (error) {
+    console.error('❌ Error en Vercel handler:', error);
+    console.error('❌ Stack trace:', error.stack);
+    
+    // Si es un error de verificación de Slack, responder adecuadamente
+    if (error.code === 'SLACK_REQUEST_VERIFICATION_FAILURE') {
+      res.status(401).json({ 
+        error: 'Unauthorized',
+        message: 'Invalid signature' 
+      });
+      return;
+    }
+    
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      message: error.message,
+      stack: error.stack
+    });
+  }
+};
 
 console.log('🎯 Slack Bot configurado y listo para recibir requests');
