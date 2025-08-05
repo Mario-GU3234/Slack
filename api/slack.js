@@ -375,11 +375,87 @@ app.event('app_mention', async ({ event, client }) => {
 });
 
 // ==========================================
-// EXPORT PARA VERCEL
+// EXPORT PARA VERCEL - VERSIÓN CORREGIDA
 // ==========================================
 module.exports = async (req, res) => {
-  const handler = await app.requestHandler();
-  return handler(req, res);
+  try {
+    console.log('📥 Request recibido:', req.method, req.url);
+    
+    // Configurar headers CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // Manejar preflight OPTIONS
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
+    
+    // Solo aceptar POST requests
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+    
+    // Crear response mock para Slack Bolt
+    let responseBody = '';
+    let responseStatus = 200;
+    let responseHeaders = {};
+    
+    const mockRes = {
+      status: (code) => {
+        responseStatus = code;
+        return mockRes;
+      },
+      setHeader: (key, value) => {
+        responseHeaders[key] = value;
+        return mockRes;
+      },
+      end: (body) => {
+        responseBody = body || '';
+      },
+      send: (body) => {
+        responseBody = typeof body === 'string' ? body : JSON.stringify(body);
+      }
+    };
+    
+    // Procesar con Slack Bolt
+    await new Promise((resolve, reject) => {
+      const mockReq = {
+        ...req,
+        body: typeof req.body === 'string' ? req.body : JSON.stringify(req.body),
+        headers: req.headers,
+        method: req.method,
+        url: req.url
+      };
+      
+      // Usar el receiver interno de Slack Bolt
+      const receiver = app.receiver;
+      receiver.requestHandler(mockReq, mockRes, (err) => {
+        if (err) {
+          console.error('❌ Error en receiver:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+    
+    // Enviar respuesta final
+    Object.keys(responseHeaders).forEach(key => {
+      res.setHeader(key, responseHeaders[key]);
+    });
+    
+    res.status(responseStatus).send(responseBody);
+    
+  } catch (error) {
+    console.error('❌ Error en Vercel handler:', error);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      message: error.message 
+    });
+  }
 };
 
 console.log('🎯 Slack Bot configurado y listo para recibir requests');

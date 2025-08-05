@@ -1,50 +1,52 @@
-// sheets.js
 const { GoogleSpreadsheet } = require('google-spreadsheet');
+const path = require('path');
 
 class SheetsService {
   constructor() {
-    // 👇 Obtiene el ID del Spreadsheet desde la env var
     this.doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEETS_ID);
     this.initialized = false;
   }
 
   async initialize() {
     if (this.initialized) return;
-
+    
     try {
-      console.log('🔄 Inicializando Google Sheets…');
-
-      // 👇 Parseamos el JSON completo de credenciales desde la env var
-      const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-
-      // 👇 Autenticación con la cuenta de servicio
+      console.log('🔄 Inicializando Google Sheets...');
+      
+      // Cargar credenciales desde U-Bot.json
+      const credentialsPath = path.join(process.cwd(), 'U-Bot.json');
+      const credentials = require(credentialsPath);
+      
       await this.doc.useServiceAccountAuth({
-        client_email: creds.client_email,
-        private_key:   creds.private_key.replace(/\\n/g, '\n')
+        client_email: credentials.client_email,
+        private_key: credentials.private_key,
       });
-
+      
       await this.doc.loadInfo();
       this.initialized = true;
-
+      
       console.log(`✅ Google Sheets conectado: "${this.doc.title}"`);
-    } catch (err) {
-      console.error('❌ Error inicializando Google Sheets:', err.message);
-      throw new Error(`Error conectando con Google Sheets: ${err.message}`);
+      
+    } catch (error) {
+      console.error('❌ Error inicializando Google Sheets:', error.message);
+      throw new Error(`Error conectando con Google Sheets: ${error.message}`);
     }
   }
 
   async addRow(data) {
     try {
       await this.initialize();
-
+      
+      // Obtener primera hoja
       const sheet = this.doc.sheetsByIndex[0];
-      const rows  = await sheet.getRows();
-
+      
+      // Verificar si necesitamos headers
+      const rows = await sheet.getRows();
       if (rows.length === 0) {
         console.log('📝 Creando headers en la hoja...');
         await sheet.setHeaderRow([
           'Fecha y Hora',
-          'Usuario Slack',
+          'Usuario Slack', 
           'Nombre Completo',
           'Email',
           'Departamento',
@@ -52,10 +54,18 @@ class SheetsService {
           'ID Usuario'
         ]);
       }
-
+      
+      // Preparar datos para insertar
       const rowData = {
-        'Fecha y Hora': new Date()
-          .toLocaleString('es-MX', { timeZone: 'America/Mexico_City' }),
+        'Fecha y Hora': new Date().toLocaleString('es-MX', {
+          timeZone: 'America/Mexico_City',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        }),
         'Usuario Slack': data.userSlack,
         'Nombre Completo': data.nombre,
         'Email': data.email,
@@ -63,15 +73,25 @@ class SheetsService {
         'Mensaje': data.mensaje,
         'ID Usuario': data.userId
       };
-
+      
+      // Insertar fila
       await sheet.addRow(rowData);
-      console.log('✅ Fila agregada exitosamente:', rowData);
-      return { success: true, message: 'Datos guardados correctamente' };
-    } catch (err) {
-      console.error('❌ Error agregando fila a Sheets:', err);
-      return {
-        success: false,
-        error: err.message,
+      
+      console.log('✅ Fila agregada exitosamente:', {
+        nombre: data.nombre,
+        departamento: data.departamento
+      });
+      
+      return { 
+        success: true, 
+        message: 'Datos guardados correctamente' 
+      };
+      
+    } catch (error) {
+      console.error('❌ Error agregando fila a Sheets:', error);
+      return { 
+        success: false, 
+        error: error.message,
         message: 'Error al guardar en la hoja de cálculo'
       };
     }
@@ -81,12 +101,12 @@ class SheetsService {
     try {
       await this.initialize();
       return {
-        title:           this.doc.title,
-        sheetCount:      this.doc.sheetCount,
+        title: this.doc.title,
+        sheetCount: this.doc.sheetCount,
         firstSheetTitle: this.doc.sheetsByIndex[0].title
       };
-    } catch (err) {
-      throw new Error(`Error obteniendo info de la hoja: ${err.message}`);
+    } catch (error) {
+      throw new Error(`Error obteniendo info de la hoja: ${error.message}`);
     }
   }
 }
