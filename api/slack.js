@@ -31,10 +31,18 @@ console.log('✅ Slack App configurada correctamente');
 // SLASH COMMAND: /formulario
 // ==========================================
 app.command('/formulario', async ({ command, ack, body, client }) => {
+  console.log('🎯 COMANDO /formulario INTERCEPTADO');
   console.log(`📝 Comando /formulario ejecutado por: ${body.user_name}`);
+  console.log('📋 Body completo:', JSON.stringify(body, null, 2));
   
   // Responder INMEDIATAMENTE - Sin timeout
-  await ack();
+  try {
+    await ack();
+    console.log('✅ ACK enviado correctamente');
+  } catch (ackError) {
+    console.error('❌ Error en ACK:', ackError);
+    return;
+  }
 
   try {
     // Abrir modal - SÚPER RÁPIDO, no hay procesamiento
@@ -394,6 +402,16 @@ receiver.app.use((req, res, next) => {
       'content-type': req.headers['content-type']
     }
   });
+  
+  // Log del body para debug
+  if (req.body) {
+    console.log('📦 Request body keys:', Object.keys(req.body));
+    if (req.body.command) {
+      console.log('🎯 Comando detectado:', req.body.command);
+      console.log('👤 Usuario:', req.body.user_name);
+    }
+  }
+  
   next();
 });
 
