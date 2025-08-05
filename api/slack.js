@@ -1,4 +1,4 @@
-const { App } = require('@slack/bolt');
+const { App, ExpressReceiver } = require('@slack/bolt');
 const sheetsService = require('./utils/sheets');
 require('dotenv').config();
 
@@ -13,11 +13,16 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
-// Inicializar Slack App
+// ✅ CREAR RECEIVER EXPLÍCITAMENTE PARA VERCEL
+const receiver = new ExpressReceiver({
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  processBeforeResponse: true
+});
+
+// Inicializar Slack App con receiver personalizado
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  processBeforeResponse: true, // Importante para Vercel
+  receiver
 });
 
 console.log('✅ Slack App configurada correctamente');
@@ -375,57 +380,8 @@ app.event('app_mention', async ({ event, client }) => {
 });
 
 // ==========================================
-// EXPORT PARA VERCEL - VERSIÓN CORREGIDA
+// EXPORT PARA VERCEL - VERSIÓN SIMPLE Y DIRECTA
 // ==========================================
-module.exports = async (req, res) => {
-  try {
-    console.log('📥 Request recibido:', req.method, req.url);
-    
-    // Configurar headers CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    // Manejar preflight OPTIONS
-    if (req.method === 'OPTIONS') {
-      res.status(200).end();
-      return;
-    }
-    
-    // Solo aceptar POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ error: 'Method not allowed' });
-      return;
-    }
-    
-    // ✅ CORRECCIÓN: Usar directamente el método start() de Slack Bolt
-    // En lugar de intentar acceder al receiver manualmente
-    await app.processEvent({
-      body: req.body,
-      headers: req.headers,
-      isBase64Encoded: false
-    });
-    
-    // Responder con éxito
-    res.status(200).send('OK');
-    
-  } catch (error) {
-    console.error('❌ Error en Vercel handler:', error);
-    
-    // Si es un error de verificación de Slack, responder adecuadamente
-    if (error.code === 'SLACK_REQUEST_VERIFICATION_FAILURE') {
-      res.status(401).json({ 
-        error: 'Unauthorized',
-        message: 'Invalid signature' 
-      });
-      return;
-    }
-    
-    res.status(500).json({ 
-      error: 'Internal Server Error',
-      message: error.message 
-    });
-  }
-};
+module.exports = receiver.app;
 
 console.log('🎯 Slack Bot configurado y listo para recibir requests');
