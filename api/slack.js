@@ -13,10 +13,15 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
-// ✅ CREAR RECEIVER EXPLÍCITAMENTE PARA VERCEL
+// ✅ CREAR RECEIVER EXPLÍCITAMENTE PARA VERCEL CON CONFIGURACIÓN COMPLETA
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  processBeforeResponse: true
+  processBeforeResponse: true,
+  // ✅ Configuraciones importantes para Vercel
+  endpoints: '/api/slack',
+  installerOptions: {
+    directInstall: true
+  }
 });
 
 // Inicializar Slack App con receiver personalizado
@@ -403,13 +408,21 @@ receiver.app.use((req, res, next) => {
     }
   });
   
-  // Log del body para debug
-  if (req.body) {
+  // Log del body para debug - MEJORADO
+  console.log('📦 Request body type:', typeof req.body);
+  console.log('📦 Request body:', req.body);
+  
+  if (req.body && typeof req.body === 'object') {
     console.log('📦 Request body keys:', Object.keys(req.body));
     if (req.body.command) {
       console.log('🎯 Comando detectado:', req.body.command);
       console.log('👤 Usuario:', req.body.user_name);
     }
+  }
+  
+  // También verificar rawBody si existe
+  if (req.rawBody) {
+    console.log('📝 Raw body (primeros 200 chars):', req.rawBody.toString().substring(0, 200));
   }
   
   next();
